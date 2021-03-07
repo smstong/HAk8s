@@ -1,7 +1,8 @@
 # one command to create a HA k8s cluster on you PC
 
 ## prerequisites
-  Linux + vagrant installed
+
+  Linux + vagrant installed + ansible installed
 
 ## what does the cluster look like?
   nodes spec: VM CentOS7
