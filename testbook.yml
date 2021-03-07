@@ -1,0 +1,7 @@
+---
+- hosts: c1
+  tasks:
+    - name: test creates
+      command: 
+        cmd: echo hello
+        creates: /etc/passwd

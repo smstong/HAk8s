@@ -1,0 +1,131 @@
+---
+- hosts: all
+  tasks:
+    - name: disable swap on /etc/fstab
+      lineinfile:
+        path: /etc/fstab
+        backup: yes
+        regex: '(^[^#].*swap.*$)'
+        backrefs: yes
+        line: '#\1'
+      notify: swapoff
+
+    - name: update /etc/hosts
+      template:
+        src: etc_hosts.j2
+        dest: /etc/hosts
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: enable br_netfilter
+      copy:
+        src: etc_modules-load.d_k8s.conf
+        dest: /etc/modules-load.d/k8s.conf
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: enable iptables to see bridge
+      copy:
+        src: etc_sysctl.d_k8s.conf
+        dest: /etc/sysctl.d/k8s.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify:
+        - apply sysctl
+
+    - name: disable firewalld
+      service:
+        name: firewalld
+        state: stopped
+        enabled: no
+
+    - name: selinux to permissive mode
+      selinux:
+        policy: targeted
+        state: permissive
+
+    - name: docker-ce repo setup
+      copy:
+        src: docker-ce.repo
+        dest: /etc/yum.repos.d/docker-ce.repo
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: install docker
+      # version 19.03 is the only supported
+      yum:
+        name:
+          - yum-utils
+          - device-mapper-persistent-data
+          - lvm2
+          - containerd.io-1.2.13
+          - docker-ce-19.03.11
+          - docker-ce-cli-19.03.11
+        state: present
+
+    - name: docker folder /etc/docker
+      file:
+        path: /etc/docker
+        state: directory
+        mode: '0755'
+
+    - name: docker folder /etc/systemd/system/docker.service.d
+      file:
+        path: /etc/systemd/system/docker.service.d
+        state: directory
+        mode: '0755'
+
+    - name: config docker
+      copy:
+        src: etc_docker_daemon.json
+        dest: /etc/docker/daemon.json
+        owner: root
+        group: root
+        mode: '0644'
+      notify:
+        - restart docker
+
+    - name: enable/start docker
+      service:
+        name: docker
+        enabled: yes
+        state: started
+
+    - name: add kubernetes.repo
+      copy:
+        src: kubernetes.repo
+        dest: /etc/yum.repos.d/kubernetes.repo
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: install kubeadm/kubelet/kubectl
+      yum:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+        disable_excludes: kubernetes
+        state: present
+        disable_gpg_check: yes
+
+    - name: enable kubelet
+      service:
+        name: kubelet
+        enabled: yes
+
+  handlers:
+    - name: swapoff
+      command: swapoff -a
+
+    - name: apply sysctl
+      command: "sysctl --system"
+
+    - name: restart docker
+      service: 
+        name: docker
+        state: reloaded

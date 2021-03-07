@@ -1,0 +1,51 @@
+###############################################################################
+# Create the first control plane node
+#
+# --cluster-endpoint is the DNS name of the loadbalancer of control plane nodes
+# --apiserver-advertise-address is the listening address of api server 
+# --pod-network-cidr is the IP range of pods
+# --upload-certs flag isused to upload the certs that should be shared across 
+#   all crontrol plane nodes
+###############################################################################
+kubeadm init \
+    --control-plane-endpoint=cluster-endpoint \
+    --apiserver-advertise-address=192.168.84.11 \
+    --pod-network-cidr=172.20.0.0/16 \
+    --upload-certs
+
+
+###############################################################################
+# Install CNI implementation Calico
+# 
+# make sure the CNI's cidr is consistent to --pod-netowrk-cidr of kubeadm init
+###############################################################################
+curl https://docs.projectcalico.org/manifests/calico-etcd.yaml -o calico.yaml
+
+# uncomment and set CIDR
+- name: CALICO_IPV4POOL_CIDR
+  value: "172.20.0.0/16"
+
+kubectl apply -f calico.yaml
+
+###############################################################################
+# Verify CNI by checking CoreDNS pod is running or not
+###############################################################################
+kubectl get pods --all-namespaces
+
+###############################################################################
+# Join other control plane nodes
+###############################################################################
+sudo kubeadm join \
+    cluster-endpoint:6443 \
+    --token xxxx \
+    --discovery-token-ca-cert-hash xxxx \
+    --control-plane \
+    --certificate-key xxxx
+
+###############################################################################
+# Join worker nodes
+###############################################################################
+sudo kubeadm join \
+    culster-endpoint:6443 \
+    --token xxxx \
+    --discovery-token-ca-cert-hash xxxx \

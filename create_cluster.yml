@@ -1,0 +1,92 @@
+---
+- name: create first control plane node
+  hosts: c1
+  tasks:
+    - name: initialize the 1st control plane node
+      command: 
+        cmd: >
+          kubeadm init 
+          --control-plane-endpoint=cluster-endpoint
+          --apiserver-advertise-address=192.168.84.11
+          --pod-network-cidr=172.20.0.0/16
+          --upload-certs
+        creates: /etc/kubernetes/admin.conf
+
+    - name: make sure /home/vagrant/.kube exists
+      file:
+        path: /home/vagrant/.kube
+        state: directory
+        owner: vagrant
+        group: vagrant
+
+    - name: copy /etc/kubernetes/admin.conf to /home/vagrant/.kube/config 
+      command: 
+        cmd: cp /etc/kubernetes/admin.conf /home/vagrant/.kube/config
+        creates: /home/vagrant/.kube/config
+
+    - name: make sure /home/vagrant/.kube/config permission/owner
+      file:
+        path: /home/vagrant/.kube/config
+        owner: vagrant
+        group: vagrant
+        mode: '0600'
+
+    - name: test if calico installed
+      shell: 
+        cmd: >
+            kubectl --kubeconfig=/etc/kubernetes/admin.conf
+            get pods -n kube-system | grep calico
+      changed_when: false
+      failed_when: false
+      register: calico_installed
+
+    - debug:
+        var: calico_installed
+
+    - name: upload calico.yaml
+      copy:
+        src: calico.yaml
+        dest: /tmp/calico.yaml
+      when: calico_installed.rc != 0
+
+    - name: install CNI pod (calico)
+      command: >
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf
+        apply -f /tmp/calico.yaml
+      when: calico_installed.rc != 0
+
+    - name: generate controlplane-join command 
+      shell: >
+        kubeadm token create --certificate-key 
+        $(kubeadm init phase upload-certs --upload-certs | tail -1) 
+        --print-join-command > /root/join-controlplane.sh
+
+    - name: generate worker-join command 
+      shell: >
+        kubeadm token create 
+        --print-join-command > /root/join-worker.sh
+
+    - name: download join-controlplane.sh and join-worker.sh
+      fetch:
+        src: /root/{{ item }}
+        dest: ./fetched/{{ item }}
+        flat: yes
+      loop:
+        - join-controlplane.sh
+        - join-worker.sh
+
+- name: join other control plane nodes
+  hosts: c2,c3
+  tasks:
+    - name: join other control nodes
+      script: 
+        cmd: ./fetched/join-controlplane.sh
+        creates: /etc/kubernetes/admin.conf
+
+- name: join worker nodes
+  hosts: work1, work2, work3
+  tasks:
+    - name: join worker nodes
+      script:
+        cmd: ./fetched/join-worker.sh
+        creates: /etc/kubernetes/pki/ca.crt
